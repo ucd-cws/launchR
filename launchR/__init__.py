@@ -1,5 +1,5 @@
 from __future__ import print_function
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __author__ = "nickrsan"
 
 import os
@@ -26,6 +26,16 @@ class PackageInstallError(SystemError):
 
 	def __str__(self):
 		log.error("Installation of R packages failed {}.\nR Package installer output the following while processing:\n{}".format(self.return_code, self.message))
+
+
+class RExecutionError(SystemError):
+	def __init__(self, return_code, message, **kwargs):
+		self.return_code = return_code
+		self.message = message
+		super(RExecutionError, self).__init__(**kwargs)
+
+	def __str__(self):
+		log.error("Execution of R script failed with return code {}.\nR output the following while processing:\n{}".format(self.return_code, self.message))
 
 
 class Interpreter(object):
@@ -109,9 +119,10 @@ class Interpreter(object):
 		if not "R_LIBS_USER" in os.environ:
 			os.environ["R_LIBS_USER"] = self.user_library
 
+		CREATE_NO_WINDOW = 0x08000000  # used to hide a created console window (in the event of using an embedded interpreter) so it stays in the background
 		try:
-			subprocess.check_output([self.executable, script] + list(args), stderr=subprocess.STDOUT)
-		except subprocess.CalledProcessError:
-			raise
+			subprocess.check_output([self.executable, script] + list(args), creationflags=CREATE_NO_WINDOW, stderr=subprocess.STDOUT)
+		except subprocess.CalledProcessError as e:
+			raise RExecutionError(e.returncode, e.output)
 
 
