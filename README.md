@@ -31,3 +31,10 @@ Currently, launchR is Windows only and finds the R install from the registry. If
 to put R information in the registry, launchR will not find R. R can be installed for all users or as a local user.
 LaunchR will check for an all users installation first, and check for a local user installation as a backup if it can't
 find a copy installed for all users
+
+## Changelog
+0.2.5 Made RExecutionError have returncode and output attributes similar to CalledProcessError
+0.2.4 Changed user library lookup to use the registry to account for redirected documents folders
+0.2.3 Added RExecutionError to be caught when running R fails
+0.2.1-0.2.2 Bugfixes
+0.2.0 Initial release

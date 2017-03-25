@@ -1,5 +1,5 @@
 from __future__ import print_function
-__version__ = "0.2.3"
+__version__ = "0.2.5"
 __author__ = "nickrsan"
 
 import os
@@ -31,11 +31,11 @@ class PackageInstallError(SystemError):
 class RExecutionError(SystemError):
 	def __init__(self, return_code, message, **kwargs):
 		self.return_code = return_code
-		self.message = message
+		self.output = message
 		super(RExecutionError, self).__init__(**kwargs)
 
 	def __str__(self):
-		log.error("Execution of R script failed with return code {}.\nR output the following while processing:\n{}".format(self.return_code, self.message))
+		log.error("Execution of R script failed with return code {}.\nR output the following while processing:\n{}".format(self.return_code, self.output))
 
 
 class Interpreter(object):
@@ -94,10 +94,30 @@ class Interpreter(object):
 		return os.path.join(current_r_path, "bin", "Rscript.exe"), current_r_version
 
 
+	def _get_documents_folder_from_reg(self):
+		"""
+			Originally, we used the USERPROFILE environment variable, but in early testing, found an issue with a user
+			who had his Documents folder redirected to another drive, with USERPROFILE still in the same spot. So, when
+			we constructed the user packages folder path, we were in the wrong location (R seems to pick up the folder
+			redirection correctly, which is good). So, we pull the documents folder location from the registry here.
+		:return: path to user's documents folder
+		"""
+
+		registry = winreg.ConnectRegistry("", winreg.HKEY_CURRENT_USER)  # open the registry
+		try:
+			open_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+
+			key = winreg.OpenKey(registry, open_key)  # append on a version specific path if provided
+			documents_path = winreg.QueryValueEx(key, "Personal")[0]
+		finally:
+			winreg.CloseKey(registry)
+
+		return documents_path
+
 	def _get_user_packages_folder(self):
 		major_version, minor_version, sub_version = self.version.split(".")
 		packages_version = "{}.{}".format(major_version, minor_version)  # get the version format used for packages
-		new_r_package_folder = os.path.join(os.environ["USERPROFILE"], "Documents", "R", "win-library", packages_version)
+		new_r_package_folder = os.path.join(self._get_documents_folder_from_reg(), "R", "win-library", packages_version)
 
 		return new_r_package_folder
 
