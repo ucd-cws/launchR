@@ -1,16 +1,20 @@
 from __future__ import print_function
-__version__ = "0.2.5"
+__version__ = "0.3.0"
 __author__ = "nickrsan"
 
 import os
 import subprocess
 import logging
+import tempfile
 
 log = logging.getLogger("launchR")
 log.setLevel(logging.DEBUG)
 sth = logging.StreamHandler()
 sth.setLevel(logging.INFO)
 log.addHandler(sth)
+fih = logging.FileHandler(tempfile.mktemp("launchR_log"))
+fih.setLevel(logging.DEBUG)
+log.addHandler(fih)
 
 try:
 	import winreg
@@ -44,6 +48,7 @@ class Interpreter(object):
 		self.version = version  # set version by default to whatever was supplied
 		self.executable, self.version = self._get_r_executable()  # but if nothing was supplied, get_r_executable will do it
 		self.user_library = self._get_user_packages_folder()
+		self.packages = {}  # we'll add an entry here if we check for an installed package - keys are names, map to true or false if it's there
 
 	def _get_versions_from_reg(self, base_key=winreg.HKEY_LOCAL_MACHINE):
 		"""
@@ -105,7 +110,7 @@ class Interpreter(object):
 
 		registry = winreg.ConnectRegistry("", winreg.HKEY_CURRENT_USER)  # open the registry
 		try:
-			open_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+			open_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"  # http://stackoverflow.com/questions/3492920/is-there-a-system-defined-environment-variable-for-documents-directory
 
 			key = winreg.OpenKey(registry, open_key)  # append on a version specific path if provided
 			documents_path = winreg.QueryValueEx(key, "Personal")[0]
@@ -121,7 +126,7 @@ class Interpreter(object):
 
 		return new_r_package_folder
 
-	def install_packages(self, package_list, library=None):
+	def _package_install(self, package_list, library, install_command="install.packages", extra_args=None):
 		log.info("Installing R packages using interpreter at {}. This may take some time".format(self.executable))
 		if not library:  # doing this here so we can use a self variable as a default
 			library = self.user_library
@@ -131,9 +136,74 @@ class Interpreter(object):
 
 		package_list = ['\\"{}\\"'.format(package) for package in package_list]  # stringify and surround with single quotes
 		try:  # careful with the \\ and the quoting below. Very specifically tuned to allow this command to execute outside of a script!
-			self.run("-e", 'install.packages(c({}), dependencies=TRUE, lib=\\"{}\\", repos=\\"http://cran.us.r-project.org\\");'.format(", ".join(package_list), library.replace("\\", "\\\\")))
+			run_string = '{}(c({}), lib=\\"{}\\");'.format(install_command, ", ".join(package_list), library.replace("\\", "\\\\"))
+			if extra_args:
+				run_string = "{}, {});".format(run_string[:-2], extra_args)  # strip the last two characters off the old one, then insert the args and add the last two characters back
+			self.run("-e", run_string)
 		except subprocess.CalledProcessError as e:
 			raise PackageInstallError(e.returncode, e.output)
+
+	def _check_packages_installed(self, package_list):
+		"""
+			Checks if the packages named in the Python list package_list are installed in the R interpreter
+		:param package_list: 
+		:return: 
+		"""
+		for package in package_list:
+			if package in self.packages:  # skip it if we've already checked
+				continue
+
+			try:
+				self.run('-e', "library({})".format(package))
+				self.packages[package] = True
+			except RExecutionError:
+				self.packages[package] = False
+
+	def check_packages(self, package_list):
+		"""
+			
+		:param package_list: 
+		:return: 
+		"""
+		self._check_packages_installed(package_list)
+
+		for package in package_list:
+			if package not in self.packages or self.packages[package] is False:
+				return False
+
+	def install_packages(self, package_list, library=None, missing_only=True):
+		"""
+			Given a list of packages, installs those packages to the specified user library, or the default user library
+		:param package_list: 
+		:param library: 
+		:param missing_only: Only installs packages that aren't yet in the library
+		:return: 
+		"""
+
+		install_packages = []
+		if missing_only:  # if we're only supposed to install the missing ones, then check which ones are installed, and add the missing ones to a new list
+			self._check_packages_installed(package_list)
+			for package in package_list:
+				if package not in self.packages or self.packages[package] is False:
+					install_packages.append(package)
+
+			if len(install_packages) == 0:  # do we have things to install?
+				return
+			package_list = install_packages  # set the package list to install again
+
+		extra_args = 'dependencies=TRUE, repos=\\"http://cran.us.r-project.org\\"'
+		self._package_install(package_list, library, install_command="install.packages", extra_args=extra_args)
+
+	def install_github(self, package_list, library=None):
+		"""
+			Given a list of github package names (username/repository) format, installs the packages
+		:param package_list: 
+		:param library: 
+		:return: 
+		"""
+		self.install_packages(["devtools"], library=library, missing_only=True)  # install devtools if it's missing from the library
+
+		self._package_install(package_list, library, install_command="library(devtools);devtools::install_github")  # then call the install_github command
 
 	def run(self, script, *args):
 		if not "R_LIBS_USER" in os.environ:
