@@ -206,10 +206,14 @@ class Interpreter(object):
 		self._package_install(package_list, library, install_command="library(devtools);devtools::install_github")  # then call the install_github command
 
 	def run(self, script, *args):
+		"""
+			Executes the script provied and makes everything in args available sequentially as command line arguments
+		"""
+	
 		if not "R_LIBS_USER" in os.environ:
 			os.environ["R_LIBS_USER"] = self.user_library
 
-		CREATE_NO_WINDOW = 0x08000000  # used to hide a created console window (in the event of using an embedded interpreter) so it stays in the background
+		CREATE_NO_WINDOW = 0x08000000  # used to hide a created console window (in the event of using an embedded Python interpreter) so it stays in the background
 		try:
 			subprocess.check_output([self.executable, script] + list(args), creationflags=CREATE_NO_WINDOW, stderr=subprocess.STDOUT)
 		except subprocess.CalledProcessError as e:
